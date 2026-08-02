@@ -15,32 +15,45 @@ Para usar o Studio e a pipeline você não precisa clonar ou compilar este repos
 O build aprovado é:
 
 ```text
-UEExtractor NTE 1.0.8.4.3
+UEExtractor NTE 1.0.8.4 (build 613023e, pacote r2)
 ```
 
 Download utilizado pela pipeline:
 
-<https://github.com/MauricioIkeda/nte-ptbr-releases/releases/download/tools-ueextractor-nte-1.0.8.4.3/UEExtractor-NTE-1.0.8.4.3-win-x64.zip>
+<https://github.com/MauricioIkeda/nte-ptbr-releases/releases/download/tools-ueextractor-nte-1.0.8.4-613023e-dc7a22b-r2/UEExtractor-NTE-1.0.8.4-613023e-dc7a22b-r2-win-x64.zip>
 
 ### Hash do ZIP
 
 ```text
-1B6BDAA1906BDD9F01F6CE632904BAB4FA42C6B9373F1DCD5DAAE981DB4C189F
+6ED977292C3F91B18A4615E16894E74C215882537919CE769808AC0433269D03
 ```
 
 ### Hash do `UEExtractor.exe`
 
 ```text
-BC7B8D8AE365BC10402770068D77C90FA2E27C04026592C8A0DF93B98DA8472D
+DC7A22BD7D0CC4C5A8CEFAA40503EBCEB37420CECE680AFF14C237B836458AEC
 ```
 
 ### Hash do `UEExtractor.dll`
 
 ```text
-012CA72B3594F9688C94DA93D51023E6278CDABC91B8CBB6136D6A19B3D952B4
+63BE6EB1EA17AB23618E2B403ADBD9D57C71639D0FACA6E87A192A7D0DC2FAC0
 ```
 
-A pipeline também grava esses hashes em `nte.config.json` e bloqueia extração ou build quando os arquivos locais são diferentes.
+### Procedência do build aprovado
+
+```text
+Repositório: MauricioIkeda/UEExtractor
+Branch:      fix/nte-aes-submitkey
+Commit:      613023e14c57c80f13b299fa41ece1dee8bf8cf3
+
+Submódulo:   MauricioIkeda/CUE4Parse
+Commit:      6669950b221202884b326375518cd158d381065b
+```
+
+O pacote contém `NTE-BUILD-PROVENANCE.json`, que registra os commits acima e os hashes dos arquivos distribuídos. A release foi baixada novamente e auditada antes de os novos hashes serem adotados pela pipeline.
+
+A pipeline também grava os hashes do executável e da DLL em `nte.config.json` e bloqueia extração ou build quando os arquivos locais são diferentes.
 
 ### Instalação manual para a pipeline
 
@@ -52,10 +65,10 @@ New-Item -ItemType Directory -Force `
 New-Item -ItemType Directory -Force `
   -Path .\workspace\tools\ueextractor-nte | Out-Null
 
-$Zip = ".\workspace\tools\downloads\UEExtractor-NTE-1.0.8.4.3-win-x64.zip"
+$Zip = ".\workspace\tools\downloads\UEExtractor-NTE-1.0.8.4-613023e-dc7a22b-r2-win-x64.zip"
 
 Invoke-WebRequest `
-  -Uri "https://github.com/MauricioIkeda/nte-ptbr-releases/releases/download/tools-ueextractor-nte-1.0.8.4.3/UEExtractor-NTE-1.0.8.4.3-win-x64.zip" `
+  -Uri "https://github.com/MauricioIkeda/nte-ptbr-releases/releases/download/tools-ueextractor-nte-1.0.8.4-613023e-dc7a22b-r2/UEExtractor-NTE-1.0.8.4-613023e-dc7a22b-r2-win-x64.zip" `
   -OutFile $Zip
 ```
 
@@ -179,13 +192,20 @@ code --install-extension ms-dotnettools.csharp
 
 ## 4. Clonar a fonte NTE aprovada
 
-As correções usadas no build NTE 1.0.8.4.3 estão na branch:
+As correções usadas no build NTE aprovado estão na branch:
 
 ```text
 fix/nte-aes-submitkey
 ```
 
-Ela usa `MauricioIkeda/CUE4Parse` como submódulo.
+O pacote atual foi produzido a partir de:
+
+```text
+UEExtractor: 613023e14c57c80f13b299fa41ece1dee8bf8cf3
+CUE4Parse:   6669950b221202884b326375518cd158d381065b
+```
+
+A branch usa `MauricioIkeda/CUE4Parse` como submódulo.
 
 Crie sua pasta de projetos:
 
@@ -211,6 +231,7 @@ Confirme:
 ```powershell
 git branch --show-current
 git status --short
+git rev-parse HEAD
 git submodule status --recursive
 ```
 
@@ -220,7 +241,7 @@ Resultado esperado para a branch:
 fix/nte-aes-submitkey
 ```
 
-O status principal deve estar vazio. O submódulo não deve aparecer com prefixo `-`, que indicaria ausência de checkout.
+Para reproduzir exatamente o pacote aprovado, o commit principal e o commit mostrado para `CUE4Parse` devem coincidir com os valores registrados na seção de procedência. O status principal deve estar vazio. O submódulo não deve aparecer com prefixo `-`, que indicaria ausência de checkout.
 
 ### Recriar ou corrigir o submódulo
 
