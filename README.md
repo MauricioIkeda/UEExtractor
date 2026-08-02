@@ -19,14 +19,14 @@ Use the dedicated manual:
 The pipeline-approved package is:
 
 ```text
-UEExtractor NTE 1.0.8.4 (build 613023e, package r2)
+UEExtractor NTE 1.0.8.4 (build 9d69362 / CUE4Parse 679f42b)
 ```
 
 Approved provenance:
 
 ```text
-UEExtractor commit: 613023e14c57c80f13b299fa41ece1dee8bf8cf3
-CUE4Parse commit:    6669950b221202884b326375518cd158d381065b
+UEExtractor commit: 9d6936204dc0180a3797ca59a5ed526ff51edff8
+CUE4Parse commit:    679f42bc3e7b6970c28634ac7e1a1d07b9e8d8f5
 ```
 
 The guide contains:
