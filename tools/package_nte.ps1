@@ -48,7 +48,7 @@ try {
     }
     $runtimeDestination = Join-Path $stageDirectory "runtimes\win-x64"
     New-Item -ItemType Directory -Path $runtimeDestination -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $runtimeSource "*") `
+    Copy-Item -Path (Join-Path $runtimeSource "*") `
         -Destination $runtimeDestination -Recurse
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "LICENSE") `
         -Destination (Join-Path $stageDirectory "LICENSE-UEExtractor.txt")
