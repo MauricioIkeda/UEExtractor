@@ -15,29 +15,35 @@ Para usar o Studio e a pipeline você não precisa clonar ou compilar este repos
 O build aprovado é:
 
 ```text
-UEExtractor NTE 1.0.8.4 (build 613023e, pacote r2)
+UEExtractor NTE 1.0.8.4 (build 9d69362 / CUE4Parse 679f42b)
 ```
 
 Download utilizado pela pipeline:
 
-<https://github.com/MauricioIkeda/nte-ptbr-releases/releases/download/tools-ueextractor-nte-1.0.8.4-613023e-dc7a22b-r2/UEExtractor-NTE-1.0.8.4-613023e-dc7a22b-r2-win-x64.zip>
+<https://github.com/MauricioIkeda/nte-ptbr-releases/releases/download/tools-ueextractor-nte-1.0.8.4-9d69362-679f42b/UEExtractor-NTE-1.0.8.4-9d69362-679f42b-win-x64.zip>
 
 ### Hash do ZIP
 
 ```text
-6ED977292C3F91B18A4615E16894E74C215882537919CE769808AC0433269D03
+5667E9B2F1FDE77DC7E8A66AB2BE10169579FA5FFFDA69F5175E487AFC7ADB94
 ```
 
 ### Hash do `UEExtractor.exe`
 
 ```text
-DC7A22BD7D0CC4C5A8CEFAA40503EBCEB37420CECE680AFF14C237B836458AEC
+168E289BC8A1B498687B64AB77D0F0BD21486A783CD99603D0906386B983BC68
 ```
 
 ### Hash do `UEExtractor.dll`
 
 ```text
-63BE6EB1EA17AB23618E2B403ADBD9D57C71639D0FACA6E87A192A7D0DC2FAC0
+3958045C5024F853A86B013CAA90F3466E650CE42E1DCDC104F5683A84E0C4C4
+```
+
+### Hash do `CUE4Parse-Natives.dll`
+
+```text
+2D148037B673486109A051A8449D9B372C4E9316E70DEB282AF233D6CC1D6B7C
 ```
 
 ### Procedência do build aprovado
@@ -45,10 +51,10 @@ DC7A22BD7D0CC4C5A8CEFAA40503EBCEB37420CECE680AFF14C237B836458AEC
 ```text
 Repositório: MauricioIkeda/UEExtractor
 Branch:      fix/nte-aes-submitkey
-Commit:      613023e14c57c80f13b299fa41ece1dee8bf8cf3
+Commit:      9d6936204dc0180a3797ca59a5ed526ff51edff8
 
 Submódulo:   MauricioIkeda/CUE4Parse
-Commit:      6669950b221202884b326375518cd158d381065b
+Commit:      679f42bc3e7b6970c28634ac7e1a1d07b9e8d8f5
 ```
 
 O pacote contém `NTE-BUILD-PROVENANCE.json`, que registra os commits acima e os hashes dos arquivos distribuídos. A release foi baixada novamente e auditada antes de os novos hashes serem adotados pela pipeline.
@@ -65,10 +71,10 @@ New-Item -ItemType Directory -Force `
 New-Item -ItemType Directory -Force `
   -Path .\workspace\tools\ueextractor-nte | Out-Null
 
-$Zip = ".\workspace\tools\downloads\UEExtractor-NTE-1.0.8.4-613023e-dc7a22b-r2-win-x64.zip"
+$Zip = ".\workspace\tools\downloads\UEExtractor-NTE-1.0.8.4-9d69362-679f42b-win-x64.zip"
 
 Invoke-WebRequest `
-  -Uri "https://github.com/MauricioIkeda/nte-ptbr-releases/releases/download/tools-ueextractor-nte-1.0.8.4-613023e-dc7a22b-r2/UEExtractor-NTE-1.0.8.4-613023e-dc7a22b-r2-win-x64.zip" `
+  -Uri "https://github.com/MauricioIkeda/nte-ptbr-releases/releases/download/tools-ueextractor-nte-1.0.8.4-9d69362-679f42b/UEExtractor-NTE-1.0.8.4-9d69362-679f42b-win-x64.zip" `
   -OutFile $Zip
 ```
 
@@ -97,6 +103,10 @@ Get-FileHash `
 Get-FileHash `
   -Algorithm SHA256 `
   -LiteralPath .\workspace\tools\ueextractor-nte\UEExtractor.dll
+
+Get-FileHash `
+  -Algorithm SHA256 `
+  -LiteralPath .\workspace\tools\ueextractor-nte\CUE4Parse-Natives.dll
 ```
 
 Não substitua esses arquivos por uma release aleatória do upstream. O build NTE contém correções específicas para leitura, patch e preservação estrutural do LOCRES.
@@ -201,8 +211,8 @@ fix/nte-aes-submitkey
 O pacote atual foi produzido a partir de:
 
 ```text
-UEExtractor: 613023e14c57c80f13b299fa41ece1dee8bf8cf3
-CUE4Parse:   6669950b221202884b326375518cd158d381065b
+UEExtractor: 9d6936204dc0180a3797ca59a5ed526ff51edff8
+CUE4Parse:   679f42bc3e7b6970c28634ac7e1a1d07b9e8d8f5
 ```
 
 A branch usa `MauricioIkeda/CUE4Parse` como submódulo.
