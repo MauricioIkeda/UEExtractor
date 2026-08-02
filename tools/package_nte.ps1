@@ -42,11 +42,14 @@ try {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stageDirectory $name)
     }
 
-    $runtimeSource = Join-Path $buildDirectory "runtimes"
+    $runtimeSource = Join-Path $buildDirectory "runtimes\win-x64"
     if (-not (Test-Path -LiteralPath $runtimeSource -PathType Container)) {
         throw "Diretorio de runtimes ausente: $runtimeSource"
     }
-    Copy-Item -LiteralPath $runtimeSource -Destination $stageDirectory -Recurse
+    $runtimeDestination = Join-Path $stageDirectory "runtimes\win-x64"
+    New-Item -ItemType Directory -Path $runtimeDestination -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $runtimeSource "*") `
+        -Destination $runtimeDestination -Recurse
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "LICENSE") `
         -Destination (Join-Path $stageDirectory "LICENSE-UEExtractor.txt")
 
