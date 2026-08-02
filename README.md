@@ -2,200 +2,320 @@
 
 [**English**](/README.md) | [**Русский**](./docs/ru/README.ru.md)
 
-Made with ❤️ for **all** translators and translation developers.
+Made with ❤️ for translators and translation developers.
 
-This a tool on **.NET 10.0** to extract text from any game on [Unreal Engine](https://www.unrealengine.com/) (4.0 - 5.8).<br>Using [CUE4Parse](https://github.com/FabianFG/CUE4Parse) to work with Unreal Engine archives **`.pak`** and **`.utoc`**.
+UEExtractor is a **.NET 10 / C#** tool for extracting text from Unreal Engine games and rebuilding localization resources. It uses [CUE4Parse](https://github.com/FabianFG/CUE4Parse) to read `.pak`, `.utoc`, assets, string tables and compiled `.locres` files.
 
-With it, you will receive a `locresCSV` file for localization of the game based on its resources.
+## Choose your goal
 
-> [!IMPORTANT]
-> Now available **fully functional extraction** of `DataTable`, `StringTable` and **direct `.locres` reading** for games that ship pre-compiled localization binaries.
+### I only need the approved NTE extractor used by the PT-BR pipeline
 
-## LocresCSV Structure:
-Will be imported or converted to `.locres` file.
-- key = unique string of 32 characters.
-- source = string from decoded text data
-- Translation = ***null*** from unpacked resources
+Do not compile a random branch or replace the binary with a different upstream release.
+
+Use the dedicated manual:
+
+**[UEExtractor NTE — approved binary, hashes, source setup and development on Windows](docs/NTE_MANUAL_WINDOWS.md)**
+
+The pipeline-approved package is:
+
+```text
+UEExtractor NTE 1.0.8.4 (build 613023e, package r2)
 ```
+
+Approved provenance:
+
+```text
+UEExtractor commit: 613023e14c57c80f13b299fa41ece1dee8bf8cf3
+CUE4Parse commit:    6669950b221202884b326375518cd158d381065b
+```
+
+The guide contains:
+
+- the exact download used by the NTE Translation Studio;
+- SHA-256 for the ZIP, `UEExtractor.exe` and `UEExtractor.dll`;
+- the exact installation directory expected by the pipeline;
+- the approved source branch and commits;
+- .NET 10 SDK setup;
+- CUE4Parse submodule setup;
+- Debug and Release build commands;
+- NTE extraction and patch examples;
+- compatibility proofs required before replacing the approved build.
+
+### I want to modify or rebuild UEExtractor
+
+UEExtractor is a C# project targeting:
+
+```xml
+<TargetFramework>net10.0</TargetFramework>
+```
+
+Install the **.NET 10 SDK**. Visual Studio Community is optional; command-line builds work with `dotnet`. If you use Visual Studio, the relevant workload is **.NET desktop development**, not C++ development.
+
+For the source currently used by the NTE-specific build, clone:
+
+```powershell
+git clone `
+  --branch fix/nte-aes-submitkey `
+  --recurse-submodules `
+  https://github.com/MauricioIkeda/UEExtractor.git
+```
+
+Then follow [the complete NTE development guide](docs/NTE_MANUAL_WINDOWS.md#cenário-b--desenvolver-ou-recompilar-o-ueextractor).
+
+## Main features
+
+- extracts text from Unreal Engine `.pak` and `.utoc` containers;
+- reads DataTables, StringTables and compiled LOCRES files;
+- supports direct LOCRES extraction;
+- exports localization CSV files;
+- rebuilds LOCRES files from CSV;
+- provides NTE patch mode using the original LOCRES as a structural template;
+- preserves a `.locreshashes` sidecar for original game hashes;
+- supports AES-protected archives;
+- can restrict extraction to a known virtual path;
+- includes automatic handling for several game-specific formats through CUE4Parse.
+
+## LocresCSV structure
+
+A normal exported row contains:
+
+```csv
 key,source,Translation
 4A6FDB1549E45F6C5D8D739129686E2F,Default,
 ```
-*Importing a **Translation column** from CSV also possible via [UE4localizationsTool](https://github.com/amrshaheen61/UE4LocalizationsTool).*
 
-## Preparation:
-### For games running on Unreal Engine 4 before [ZenLoader](https://dev.epicgames.com/documentation/en-us/unreal-engine/zen-loader-in-unreal-engine).
-Find out if your game requires an **AES key** or not, as it may not be needed and the steps can be skipped.
+- `key`: localization identity;
+- `source`: original game text;
+- `Translation`: translated text to be applied.
 
-> [!TIP]
-> **The engine version and game type are detected automatically** from the game executable.
-> - For many well-known games (see [Supported games](#supported-games)) no `-v` flag is needed at all.
-> - You can still override with `-v=UE5_1` if auto-detection gives wrong results.
-> - All UE version values come from the CUE4Parse library; find the right one via FModel.
+Do not modify keys unless you fully understand the lookup format used by the target game.
 
-1. You will **need to have an AES key** to view the archives and retrieve data from them.
-   - You can find it online if you don't have it, or find it yourself from the resources.
-   - You can also get it using the `--aes:auto` argument if the game does not have special encryption.
-2. Place `aes.txt` in the main game directory with one line as 32-character hex string.
-   - Or provide it with the argument `--aes=<key>`. Key must start with `0x`.
+## Preparation
 
-### For games running on Unreal Engine 4-5 with [ZenLoader](https://dev.epicgames.com/documentation/en-us/unreal-engine/zen-loader-in-unreal-engine).
-First, follow the steps described above, and only then continue.
+### AES-protected games
 
-> [!IMPORTANT]
-> You need to get the `.usmap` file to access the game's resources and archives.
-> - As before, you can find this file on the Internet, if you don't have it.
-> - Check [nexusmods](https://www.nexusmods.com/) and modding forums for its availability.
-> - Or direct dump this file with [UE4SS-Experimental](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest), see [extracting usmap guide](https://github.com/Dmgvol/UE_Modding/blob/main/TheBasics/Extractingusmap.md).
+Some games require an AES key.
 
-1. Place the `.usmap` file in the main directory of the game (or a subdir), and the tool will find it automatically.
-2. The preparation for the work is completed.
+You can provide it by one of the supported methods, such as:
 
-## Supported games
-
-The following games are **auto-detected by folder or executable name** — no `-v` flag required.
-Game-specific pak formats, index offsets, and custom encryption are applied automatically via CUE4Parse.
-
-| Game | Notes |
-|------|-------|
-| Neverness To Everness | Custom pak index offset; `.locres` files are encrypted |
-| Ash Echoes | Custom file provider |
-| Wuthering Waves / KuroGames | Partial-encryption pak format |
-| inZOI | Custom FPakInfo offset |
-| Marvel Rivals | Custom encryption (auto-configured by CUE4Parse) |
-| Dead by Daylight | Custom encryption (auto-configured by CUE4Parse)
-| FragPunk | Custom global IoStore handling |
-| Infinity Nikki | Custom encryption (auto-configured by CUE4Parse) |
-| Snowbreak: Containment Zone | — |
-
-> [!TIP]
-> Detection works on the **game folder name** and the **main `.exe`** name (spaces, hyphens and underscores are ignored).
-> If your game is not listed, use `-v=<UE_version>` to specify the version manually.
-
-## Merging CSV
-> [!NOTE]
-> It happens automatically when you re-run the extraction of the same game (in the same folder).
-> * **Very useful when the game is being updated and you need to get new lines without losing the translation.**
->
-> **Exactly how it works:**
-> - If the row contains values in only 2 columns (`key` & `source`) and the `Source` value in the `Key` does not match — the `Source` value from the past is added as a `Translation`. *(As an example when exporting from UE4localizationsTool)*
-> - Otherwise, if it matches, the value from the `Translation` column is written to `Translation`.
-> - Lines present in the previous file but not in the new one are preserved.
-
-## Using:
-* [Download](https://github.com/SolicenTEAM/UEExtractor/releases) and **drag & drop** a folder onto `UEExtractor.exe` to parse the whole game directory and get `<dir_name>.csv`.
-* Or use `UEExtractor.exe` in the command line with arguments.
-
-### UEExtractor - Unreal Engine (Text) Extractor
-- **Drag & drop** the game folder onto `UEExtractor.exe` to get `<dir_name>_locres.csv`.
-- **Drag & drop** a `locresCSV` file onto `UEExtractor.exe` to get a `.locres` file.
-- Or use the advanced options below via CMD.
-
-#### Extract *LocresCSV* from game:
-
-```cmd
-UEExtractor.exe <dir_path> [output_csv] [arguments...]
+```text
+--aes=0x...
 ```
 
-#### Create *.locres* from csv file:
+or a locally managed `aes.txt`, depending on your workflow.
+
+Never commit real keys to GitHub.
+
+### ZenLoader / IoStore games
+
+Some games also require a `.usmap` mapping file. Place the correct file in the game directory or a supported subdirectory when required by the target title.
+
+### Supported games
+
+The repository includes automatic or game-specific handling for titles such as:
+
+- Neverness To Everness;
+- Ash Echoes;
+- Wuthering Waves / KuroGames;
+- inZOI;
+- Marvel Rivals;
+- Dead by Daylight;
+- FragPunk;
+- Infinity Nikki;
+- Snowbreak: Containment Zone.
+
+Auto-detection and implementation details can change by branch and CUE4Parse revision. For a reproducible NTE build, use the branch and submodule revision documented in the NTE guide.
+
+## Basic use
+
+### Extract from a game directory
+
+```cmd
+UEExtractor.exe <game_directory> [output_csv_or_directory] [arguments...]
+```
+
+Example:
+
+```cmd
+UEExtractor.exe "D:\Games\Example" "D:\Output\"
+```
+
+### Restrict extraction to a known virtual path
+
+```cmd
+UEExtractor.exe "D:\Games\Example" "D:\Output\" --path=Content/Localization
+```
+
+This avoids scanning unrelated assets.
+
+### Create a LOCRES from CSV
+
 ```cmd
 UEExtractor.exe <csv_path> <output_locres>
 ```
 
-#### Patch mode — perfect locres reconstruction for NTE-encrypted games:
-```cmd
-UEExtractor.exe <original.locres> <translations.csv> -v=GAME_NevernessToEverness
-```
-The **patch mode** is the recommended approach for games like *Neverness to Everness* that use NTE-encrypted v3 `.locres` files.
-
-Instead of rebuilding the locres from scratch (which can miss entries), it:
-1. Reads the original game `.locres` as a structural template (preserving every namespace, hash, key and their exact order).
-2. Replaces each string with the translated text from the CSV (`Translation` column, or `Source` as fallback).
-3. Re-encrypts the strings and writes the output as `<original>_patched.locres`.
-
-The output is structurally **identical** to the original — same entry count, same namespace hashes, same key order — guaranteeing correct in-game lookup.
-
-**Full NTE translation workflow:**
+### Display help and version
 
 ```cmd
-:: Step 1 – Extract and translate to Italian using an OpenRouter model
-UEExtractor.exe "L:\Game" K:\output\ --path=HT/Content/Localization/Game/en/ ^
-    --lang:from=en --lang:to=it ^
-    --api:key=<your_key> --api:model=<model> --batch-size=50
-
-:: Step 2 – Dump the original encrypted locres for use as template
-UEExtractor.exe "L:\Game" K:\output\ --path=HT/Content/Localization/Game/en/ --extract-locres
-
-:: Step 3 – Patch the original locres with Italian translations
-UEExtractor.exe Game.locres K:\output\Game.csv -v=GAME_NevernessToEverness
-:: → produces Game_patched.locres (deploy this to the game's Localization/it/ folder)
+UEExtractor.exe --help
+UEExtractor.exe --version
 ```
 
-> [!TIP]
-> The hash sidecar (`.locreshashes`) is saved automatically during extraction and loaded during import.
-> It preserves the game-original CityHash64 key hashes so the game's TMap lookup succeeds even for
-> games that use non-standard hash truncation (like NTE).
+## Neverness To Everness patch mode
 
-#### Translate with a local LLM (Ollama, LM Studio, vLLM, …):
+NTE uses a localization format where a LOCRES that appears valid can still fail in-game if namespaces, hashes, keys, order or compact-string structures are changed incorrectly.
+
+The recommended patch flow uses the original `Game.locres` as a structural template:
+
 ```cmd
-UEExtractor.exe <dir_path> --api:url=http://localhost:11434/v1/ --api:model=llama3 --lang:from=en --lang:to=it
+UEExtractor.exe <original.locres> <translations.csv> --version=GAME_NevernessToEverness --verbose
 ```
-Any server that exposes an OpenAI-compatible `/v1/chat/completions` endpoint works. No `--api:key` is required for local servers.
 
-#### Extract to a directory — one CSV per locres file:
+Expected output:
+
+```text
+<original>_patched.locres
+```
+
+Patch mode is intended to:
+
+1. read the original game LOCRES;
+2. preserve its structural identity;
+3. replace only text values matched by the CSV;
+4. write the NTE-compatible result;
+5. preserve the sidecar hashes used by the pipeline.
+
+For the exact PT-BR workflow, approved hashes and source branch, read [docs/NTE_MANUAL_WINDOWS.md](docs/NTE_MANUAL_WINDOWS.md).
+
+## NTE extraction example
+
+The PT-BR pipeline uses a command equivalent to:
+
 ```cmd
-UEExtractor.exe <dir_path> K:\output\ --path=HT/Content/Localization/Game/en/
+UEExtractor.exe "<NTE_ROOT>\Client\WindowsNoEditor\HT" "<OUTPUT>\" ^
+  --path=HT/Content/Localization/Game/en/game.locres ^
+  --version=GAME_NevernessToEverness ^
+  --extract-locres ^
+  --verbose
 ```
-When the second argument is a directory path (ends with `\` or `/`), each `.locres` file gets its own CSV named after it (e.g. `Game.csv`). If two locres files share the same name (from different pak chunks), the pak chunk name is appended: `Game_pakchunk0-Windows.csv`.
 
-#### Scan only a known internal path (much faster):
-```cmd
-UEExtractor.exe <dir_path> --path=HT/Content/Localization
+A successful extraction used by the pipeline must produce:
+
+```text
+CSV
+original LOCRES
+.locreshashes sidecar
 ```
-If you already know where the localization lives (e.g. from FModel), use `--path` to skip scanning the entire game.
 
-### Arguments
+The NTE Translation Studio then records source hashes and blocks the build if files from different extractions are mixed.
 
-| Argument | Short | Description |
-|----------|-------|-------------|
-| `--version=<ver>` | `-v` | Set the engine version or game name. Auto-detected when omitted. Use `-v=GAME_NevernessToEverness` (or `-v=NTE`) to enable NTE encrypted locres output. Examples: `-v=UE5_6`, `-v=Stalker2`. |
-| `--aes=<key>` | `-a` | 32-character hex AES key (must start with `0x`). |
-| `--aes:auto` | `-a:auto` | Automatic extraction AES key into aes.txt at the root of the game (for directories only) |
-| `--path=<virtual_path>` | `-p` | Restrict processing to assets under a specific internal path (e.g. `--path=HT/Content/Localization`). Case-insensitive substring match. |
-| `--verbose` | `-vb` | Show per-file processing details and diagnostic info instead of the progress bar. |
-| `--skip-uexp` | `-s:xp` | Skip `.uexp` files during processing. |
-| `--skip-uasset` | `-s:et` | Skip `.uasset` files during processing. |
-| `--locres` | `-l`| Write a `.locres` file after parsing. |
-| `--extract-locres` | | Dump the raw `.locres` binaries from the pak to the output directory (useful for inspection or as patch template). |
-| `--all` | `-all` | Process all folders in the archive (including effects, meshes, sounds, etc.). |
-| `--no-underscore` | `-n:un` | Skip lines with underscores: **ex_string** |
-| `--no-uppercase` | `-n:up` | Skip lines with ALL UPPERCASE: **EXAMPLE** |
-| `--no-parallel` | `-n:p` | Disable parallel processing (slower; may surface additional data). |
-| `--table-format` | `-tf` | Replace the standard `,` separator with `\|`. |
-| `--headmark` | `-m` | Include header and footer in the `.csv`. |
-| `--auto-exit` | `-exit` | Exit automatically after all processes complete. |
-| `--invalid` | `-i` | Include invalid data in the output. |
-| `--qmarks` | `-q` | Forcibly add quotation marks around text strings. |
-| `--hash` | `-h` | Include hash in the key: `[key][hash],<string>`. |
-| `--url` | `-url` | Include file path in the key: `[url][key],<string>`. |
-| `--picky` |  | Picky mode — displays more detailed per-file information. |
-| `--table:only:key=<name>` | `-t:o:k` | Include only entries whose key/name matches the given value. |
-| `--lang:from=<code>` | `-l:f` | Source language for translation (e.g. `en`). |
-| `--lang:to=<code>` | `-l:t` | Target language for translation (e.g. `ru`). |
-| `--api:key=<key>` | `-a:key` | API key for OpenRouter or any server that requires authentication. |
-| `--api:url=<url>` | `-a:url` | Custom OpenAI-compatible base URL for a local model (e.g. `http://localhost:11434/v1/` for Ollama). Omit for OpenRouter. |
-| `--api:model=<model>` | `-a:model` | Model name to use (e.g. `tngtech/deepseek-r1t2-chimera:free` for OpenRouter or `llama3` for Ollama). |
-| `--batch-size=<n>` | `-bs` | Number of segments sent per translation request (default: 150). Lower for models with small context. |
-| `--parallel=<n>` | `-par` | Number of concurrent translation requests (default: 1). Increase for faster translation with local models. |
-| `--translate-only` | `-t:o` | Skip extraction entirely and translate the existing CSV file(s) from a previous run. Resumes from where translation stopped. |
-| `--update` | | Check for a new version on GitHub and update if available. |
-| `--help` | | Show help information. |
+## Common arguments
 
-## Contributions:
-* You can create your own fork of this project and contribute to its development.
-* You can also contribute via the [Issues](https://github.com/SolicenTEAM/UEExtractor/issues) and [Pull Request](https://github.com/SolicenTEAM/UEExtractor/pulls) tabs by suggesting your code changes.
+| Argument | Purpose |
+|---|---|
+| `--version=<value>` / `-v` | selects an Unreal version or game profile |
+| `--aes=<key>` | supplies an AES key locally |
+| `--aes:auto` | attempts supported automatic AES extraction |
+| `--path=<virtual_path>` / `-p` | limits scanning to a known path |
+| `--verbose` | prints detailed diagnostics |
+| `--extract-locres` | writes original LOCRES binaries to the output |
+| `--locres` | requests LOCRES generation in supported flows |
+| `--no-parallel` | disables parallel processing |
+| `--skip-uexp` | skips `.uexp` processing |
+| `--skip-uasset` | skips `.uasset` processing |
+| `--all` | scans all folders |
+| `--help` | displays the current executable's full argument list |
+| `--version` | displays the executable version when used as the version command |
 
-## Thanks:
-- [Ambi](https://github.com/JunkBeat) for his original script and idea to research.
-- [Saipan](https://github.com/Saipan0) for help in researching the creation of a locres file.
-- [FabianFG](https://github.com/FabianFG) for **CUE4Parse** library and FModel code example.
-- [Nuked88](https://github.com/Nuked88) for excellent work and changes in his fork.
+The executable's `--help` output is the source of truth for the exact branch you compiled.
+
+## Merging previous CSV translations
+
+When re-extracting into the same workflow, UEExtractor can reuse values from an existing Translation column. For the PT-BR project, long-term reuse, deduplication, validation and manual provenance are handled primarily by the SQLite memory in the NTE Translation Studio.
+
+Do not rely on CSV merging as a substitute for the pipeline backup.
+
+## Building from source
+
+Minimum command-line requirements:
+
+```text
+Git
+.NET 10 SDK
+CUE4Parse submodule
+```
+
+Restore and build:
+
+```powershell
+dotnet restore .\UEExtractor\UEExtractor.csproj
+
+dotnet build `
+  .\UEExtractor\UEExtractor.csproj `
+  --configuration Release
+```
+
+Output begins under:
+
+```text
+UEExtractor\bin\Release\net10.0\
+```
+
+For the NTE source, clone the approved branch recursively and follow every validation step in [the NTE manual](docs/NTE_MANUAL_WINDOWS.md).
+
+## Replacing the approved NTE binary
+
+A successful `dotnet build` is not sufficient evidence that a new binary is compatible with the game.
+
+Before replacing the currently approved package, prove at minimum:
+
+- real NTE extraction succeeds;
+- CSV, LOCRES and sidecar are generated;
+- source identity remains consistent;
+- the complete round-trip passes;
+- patch mode applies the expected number of translations;
+- entry count and structural lookup information are preserved;
+- the game loads the translated LOCRES;
+- new ZIP/EXE/DLL hashes are recorded consistently in the private pipeline;
+- clean-machine recovery downloads exactly the replacement package.
+
+## Repository and submodule safety
+
+The NTE branch uses a forked CUE4Parse submodule. After cloning:
+
+```powershell
+git submodule sync --recursive
+git submodule update --init --recursive
+git submodule status --recursive
+```
+
+Before committing, inspect both the main repository and the submodule pointer. A local submodule commit that was never pushed makes the parent repository impossible to reproduce elsewhere.
+
+## Documentation
+
+- [Complete NTE manual for Windows](docs/NTE_MANUAL_WINDOWS.md)
+- [Russian documentation](docs/ru/README.ru.md)
+
+## Contributions
+
+Create a branch instead of committing directly to `main` or to the approved NTE branch.
+
+Recommended checks:
+
+```powershell
+git status --short
+git diff --check
+git diff
+git submodule status --recursive
+dotnet restore .\UEExtractor\UEExtractor.csproj
+dotnet build .\UEExtractor\UEExtractor.csproj --configuration Release
+```
+
+Changes that affect NTE LOCRES handling require real extraction, patch and in-game validation.
+
+## Credits
+
+- SolicentTEAM and project contributors;
+- CUE4Parse contributors;
+- community reverse-engineering and localization contributors;
+- MauricioIkeda's NTE-specific source, packaging and validation work.
