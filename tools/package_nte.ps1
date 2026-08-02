@@ -1,11 +1,14 @@
 [CmdletBinding()]
 param(
     [string] $Configuration = "Release",
-    [string] $OutputDirectory = (Join-Path $PSScriptRoot "..\dist")
+    [string] $OutputDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $repositoryRoot "dist"
+}
 $project = Join-Path $repositoryRoot "UEExtractor\UEExtractor.csproj"
 $sourceCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
 $sourceBranch = (& git -C $repositoryRoot branch --show-current).Trim()
