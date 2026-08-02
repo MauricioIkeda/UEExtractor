@@ -19,7 +19,14 @@ Use the dedicated manual:
 The pipeline-approved package is:
 
 ```text
-UEExtractor NTE 1.0.8.4.3
+UEExtractor NTE 1.0.8.4 (build 613023e, package r2)
+```
+
+Approved provenance:
+
+```text
+UEExtractor commit: 613023e14c57c80f13b299fa41ece1dee8bf8cf3
+CUE4Parse commit:    6669950b221202884b326375518cd158d381065b
 ```
 
 The guide contains:
@@ -27,7 +34,7 @@ The guide contains:
 - the exact download used by the NTE Translation Studio;
 - SHA-256 for the ZIP, `UEExtractor.exe` and `UEExtractor.dll`;
 - the exact installation directory expected by the pipeline;
-- the approved source branch;
+- the approved source branch and commits;
 - .NET 10 SDK setup;
 - CUE4Parse submodule setup;
 - Debug and Release build commands;
@@ -260,7 +267,7 @@ For the NTE source, clone the approved branch recursively and follow every valid
 
 A successful `dotnet build` is not sufficient evidence that a new binary is compatible with the game.
 
-Before replacing `1.0.8.4.3`, prove at minimum:
+Before replacing the currently approved package, prove at minimum:
 
 - real NTE extraction succeeds;
 - CSV, LOCRES and sidecar are generated;
