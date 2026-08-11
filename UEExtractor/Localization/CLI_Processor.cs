@@ -21,7 +21,7 @@ namespace Solicen.Localization.UE4
 			arguments = new List<Argument>
 			{
 				new Argument("--aes", "-a", "32-character hex string as AES key", (key) => UnrealLocres.AES = key),
-				new Argument("--aes:auto", "-a:auto", "Automatic extraction AES key into aes.txt at the root of the game (for directories only)", () => ExtractAES = true),
+				new Argument("--aes:auto", "-a:auto", "Automatically extract the AES key from a supported game executable and use it in memory", () => ExtractAES = true),
 
 				new Argument("--all", "-all", "Processing all folders in archive", () => UnrealLocres.AllFolders = true),
 				new Argument("--picky", null, "Picky mode, displays more annoying information", () => UnrealLocres.PickyMode = true),
@@ -225,22 +225,26 @@ namespace Solicen.Localization.UE4
 
 		public static void ProcessDumpAESKey(string path)
 		{
-			var ShippingExeFile = Directory.GetFiles(path, "*.exe", SearchOption.AllDirectories)
-				.Where(x => x.Contains("\\Binaries\\Win64\\")).FirstOrDefault(x => x.Contains("-Shipping.exe"));
-			if (ShippingExeFile != null)
+			var candidates = Directory.GetFiles(path, "*.exe", SearchOption.AllDirectories)
+				.Where(x => x.Contains("\\Binaries\\Win64\\", StringComparison.OrdinalIgnoreCase))
+				.OrderByDescending(x => Path.GetFileName(x).EndsWith("-Shipping.exe", StringComparison.OrdinalIgnoreCase))
+				.ThenByDescending(x => Path.GetFileName(x).Equals("HTGame.exe", StringComparison.OrdinalIgnoreCase));
+
+			var dumper = new AESDumper();
+			foreach (var executable in candidates)
 			{
-                var dumper = new AESDumper();
-                var key = dumper.ExtractKey(ShippingExeFile);
-				if (key != null)
-				{
-                    dumper.ExtractKeyToFile(ShippingExeFile, path + "\\aes.txt");
-					if (UnrealLocres.VerboseOutput)
-					{
-                        CLI.Console.WriteLine($"[Green]Extracted AES Key: {key}");
-                        CLI.Console.WriteLine($"[Green]Saved: {path + "\\aes.txt"}");
-                    }
-                }
-            }
+				var key = dumper.ExtractKey(executable);
+				if (key == null) continue;
+
+				// Keep secrets out of logs and out of protected game directories.
+				// The key is used only for this process and is never persisted.
+				UnrealLocres.AES = key;
+				if (UnrealLocres.VerboseOutput)
+					CLI.Console.WriteLine($"[Green]AES key extracted from {Path.GetFileName(executable)} and loaded in memory.");
+				return;
+			}
+
+			CLI.Console.WriteLine("[Red][Error] Could not extract an AES key from a supported game executable.");
 		}
 
 		// Writes one CSV per locres file into outputDir, merging with any existing CSV.

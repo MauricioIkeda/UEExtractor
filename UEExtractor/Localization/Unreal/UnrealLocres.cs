@@ -70,7 +70,7 @@ namespace Solicen.Localization.UE4
                                        "Skeleton", "AnimSequence", "PhysicsAsset", "Font", "CurveTable", "SoundCue" };
             pDirectory = directory;
 
-            using var reader = new UnrealArchiveReader(directory, UEVersion);
+            using var reader = new UnrealArchiveReader(directory, UEVersion, AES);
             reader.ProcessAllAssets((path, stream) =>
             {
                 if (ExtractLocres && path.Contains("/Localization/") && path.EndsWith("Game.locres"))
@@ -232,7 +232,7 @@ namespace Solicen.Localization.UE4
             ProcessLocresGrouped(string directory, string? extractDirectory = null)
         {
             pDirectory = directory;
-            using var reader = new UnrealArchiveReader(directory, UEVersion);
+            using var reader = new UnrealArchiveReader(directory, UEVersion, AES);
             var groups = reader.ReadLocresGrouped(string.IsNullOrEmpty(FilterPath) ? null : FilterPath, extractDirectory);
 
             return groups.Select(g =>
@@ -524,7 +524,10 @@ namespace Solicen.Localization.UE4
         public static void SaveHashSidecar(string csvPath, IEnumerable<LocresResult> results)
         {
             var path = HashSidecarPath(csvPath);
-            var dict = new Dictionary<string, uint[]>();
+            // Stable ordering prevents identical extractions from producing a
+            // different sidecar hash merely because a concurrent dictionary
+            // happened to enumerate its entries in another order.
+            var dict = new SortedDictionary<string, uint[]>(StringComparer.Ordinal);
             foreach (var r in results)
             {
                 if (r.NsHash == 0 && r.KeyHash == 0) continue;

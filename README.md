@@ -215,7 +215,7 @@ The NTE Translation Studio then records source hashes and blocks the build if fi
 |---|---|
 | `--version=<value>` / `-v` | selects an Unreal version or game profile |
 | `--aes=<key>` | supplies an AES key locally |
-| `--aes:auto` | attempts supported automatic AES extraction |
+| `--aes:auto` | extracts a supported game's AES key and uses it in memory for this run |
 | `--path=<virtual_path>` / `-p` | limits scanning to a known path |
 | `--verbose` | prints detailed diagnostics |
 | `--extract-locres` | writes original LOCRES binaries to the output |
