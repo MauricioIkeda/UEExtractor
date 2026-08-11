@@ -26,6 +26,7 @@ public class UnrealArchiveReader : IDisposable
     public UnrealArchiveReader(string gameDirectory, string VER = "4_24", string AES = "")
     {
         UE_VER = VER;
+        AES_KEY = AES;
         gameDirectory = Path.GetFullPath(gameDirectory);
         Console.WriteLine($"Loading from: {gameDirectory}");
 
