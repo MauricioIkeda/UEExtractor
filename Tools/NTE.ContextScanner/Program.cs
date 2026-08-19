@@ -1,0 +1,333 @@
+using Solicen.Localization.UE4;
+using System.Collections.Concurrent;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace NTE.ContextScanner;
+
+internal static class Program
+{
+    private const string DefaultPathFilter = "HT/Content/";
+
+    private static int Main(string[] args)
+    {
+        try
+        {
+            if (args.Length < 3)
+            {
+                PrintUsage();
+                return 2;
+            }
+
+            var gameRoot = Path.GetFullPath(args[0]);
+            var keysFile = Path.GetFullPath(args[1]);
+            var outputFile = Path.GetFullPath(args[2]);
+
+            string? aesFile = null;
+            string? aesConfig = null;
+            var pathFilter = DefaultPathFilter;
+
+            foreach (var arg in args.Skip(3))
+            {
+                if (arg.StartsWith("--aes-file=", StringComparison.OrdinalIgnoreCase))
+                {
+                    aesFile = Path.GetFullPath(arg["--aes-file=".Length..].Trim('"'));
+                }
+                else if (arg.StartsWith("--aes-config=", StringComparison.OrdinalIgnoreCase))
+                {
+                    aesConfig = Path.GetFullPath(arg["--aes-config=".Length..].Trim('"'));
+                }
+                else if (arg.StartsWith("--path=", StringComparison.OrdinalIgnoreCase))
+                {
+                    pathFilter = arg["--path=".Length..].Trim('"');
+                    if (pathFilter == "*") pathFilter = string.Empty;
+                }
+                else
+                {
+                    throw new ArgumentException($"Unknown argument: {arg}");
+                }
+            }
+
+            if (!Directory.Exists(gameRoot))
+                throw new DirectoryNotFoundException($"Game root not found: {gameRoot}");
+            if (!File.Exists(keysFile))
+                throw new FileNotFoundException("Keys file not found.", keysFile);
+            if (aesFile is not null && aesConfig is not null)
+                throw new ArgumentException("Use only one of --aes-file or --aes-config.");
+
+            var targets = LoadTargets(keysFile);
+            if (targets.Count == 0)
+                throw new InvalidOperationException("The keys file does not contain any identities.");
+
+            var aesKey = LoadAesKey(aesFile, aesConfig);
+            UnrealLocres.FilterPath = pathFilter;
+
+            Console.WriteLine("NTE Context Reference Scanner");
+            Console.WriteLine($"Targets: {targets.Count}");
+            Console.WriteLine($"Path filter: {(string.IsNullOrEmpty(pathFilter) ? "<none>" : pathFilter)}");
+            Console.WriteLine("Provider mode: effective mounted asset view");
+            Console.WriteLine();
+
+            var references = new ConcurrentBag<ContextReference>();
+            var matched = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+            var seen = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
+            using var reader = new UnrealArchiveReader(gameRoot, AES: aesKey);
+
+            reader.ProcessAllAssets((assetPath, _) =>
+            {
+                if (!assetPath.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) &&
+                    !assetPath.EndsWith(".umap", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                ScanFTextReferences(reader, assetPath, targets, references, matched, seen);
+                ScanStringTableReferences(reader, assetPath, targets, references, matched, seen);
+            }, deepParse: false);
+
+            var ordered = references
+                .OrderBy(x => x.Identity, StringComparer.Ordinal)
+                .ThenBy(x => x.AssetPath, StringComparer.Ordinal)
+                .ThenBy(x => x.ReferenceKind, StringComparer.Ordinal)
+                .ThenBy(x => x.FTextIndex ?? -1)
+                .ToList();
+
+            WriteJsonl(outputFile, ordered);
+
+            var missing = targets
+                .Where(x => !matched.ContainsKey(x))
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .ToList();
+
+            var missingFile = BuildMissingPath(outputFile);
+            Directory.CreateDirectory(Path.GetDirectoryName(missingFile)!);
+            File.WriteAllLines(missingFile, missing, new UTF8Encoding(false));
+
+            Console.WriteLine();
+            Console.WriteLine($"References found: {ordered.Count}");
+            Console.WriteLine($"Matched identities: {matched.Count}/{targets.Count}");
+            Console.WriteLine($"Missing identities: {missing.Count}");
+            Console.WriteLine($"JSONL: {outputFile}");
+            Console.WriteLine($"Missing list: {missingFile}");
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"ERROR: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static HashSet<string> LoadTargets(string path)
+    {
+        return File.ReadLines(path)
+            .Select(x => x.Trim())
+            .Where(x => x.Length > 0 && !x.StartsWith('#'))
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static string LoadAesKey(string? aesFile, string? aesConfig)
+    {
+        if (aesFile is null && aesConfig is null)
+            return string.Empty;
+
+        string raw;
+        if (aesFile is not null)
+        {
+            if (!File.Exists(aesFile))
+                throw new FileNotFoundException("AES file not found.", aesFile);
+            raw = File.ReadAllText(aesFile).Trim();
+        }
+        else
+        {
+            if (!File.Exists(aesConfig!))
+                throw new FileNotFoundException("AES config not found.", aesConfig);
+
+            using var document = JsonDocument.Parse(File.ReadAllText(aesConfig!));
+            if (!document.RootElement.TryGetProperty("aes_key", out var aesProperty))
+                throw new InvalidDataException("The AES config does not contain an 'aes_key' property.");
+
+            raw = aesProperty.GetString()?.Trim() ?? string.Empty;
+        }
+
+        if (!raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            raw = "0x" + raw;
+
+        if (raw.Length != 66 || raw.Skip(2).Any(c => !Uri.IsHexDigit(c)))
+            throw new InvalidDataException("AES key must contain exactly 64 hexadecimal digits.");
+
+        return raw;
+    }
+
+    private static void ScanFTextReferences(
+        UnrealArchiveReader reader,
+        string assetPath,
+        HashSet<string> targets,
+        ConcurrentBag<ContextReference> references,
+        ConcurrentDictionary<string, byte> matched,
+        ConcurrentDictionary<string, byte> seen)
+    {
+        try
+        {
+            reader.GetLocalizedStrings(assetPath, entries =>
+            {
+                for (var index = 0; index < entries.Count; index++)
+                {
+                    var entry = entries[index];
+                    var identity = ComposeIdentity(entry.Namespace, entry.Key);
+                    if (!targets.Contains(identity)) continue;
+
+                    var uniqueness = $"FText\u001f{identity}\u001f{assetPath}\u001f{index}";
+                    if (!seen.TryAdd(uniqueness, 0)) continue;
+
+                    references.Add(new ContextReference
+                    {
+                        Identity = identity,
+                        Namespace = entry.Namespace,
+                        Key = entry.Key,
+                        SourceString = entry.SourceString,
+                        AssetPath = assetPath,
+                        ReferenceKind = "FText",
+                        ProviderView = "effective",
+                        FTextIndex = index,
+                        FTextCount = entries.Count,
+                        Neighbors = BuildNeighbors(entries, index)
+                    });
+                    matched.TryAdd(identity, 0);
+                }
+            });
+        }
+        catch
+        {
+            // Asset-level parse failures are expected for some packages and are already
+            // surfaced by the underlying reader during diagnostic runs.
+        }
+    }
+
+    private static void ScanStringTableReferences(
+        UnrealArchiveReader reader,
+        string assetPath,
+        HashSet<string> targets,
+        ConcurrentBag<ContextReference> references,
+        ConcurrentDictionary<string, byte> matched,
+        ConcurrentDictionary<string, byte> seen)
+    {
+        try
+        {
+            reader.LoadStringTable(assetPath, (tableNamespace, entries) =>
+            {
+                foreach (var entry in entries)
+                {
+                    var identity = ComposeIdentity(tableNamespace, entry.Key);
+                    if (!targets.Contains(identity)) continue;
+
+                    var uniqueness = $"StringTable\u001f{identity}\u001f{assetPath}";
+                    if (!seen.TryAdd(uniqueness, 0)) continue;
+
+                    references.Add(new ContextReference
+                    {
+                        Identity = identity,
+                        Namespace = tableNamespace,
+                        Key = entry.Key,
+                        SourceString = entry.Value,
+                        AssetPath = assetPath,
+                        ReferenceKind = "StringTable",
+                        ProviderView = "effective",
+                        StringTableEntryCount = entries.Count
+                    });
+                    matched.TryAdd(identity, 0);
+                }
+            });
+        }
+        catch
+        {
+            // Not every package is a StringTable; failures here are non-fatal.
+        }
+    }
+
+    private static List<ContextNeighbor> BuildNeighbors(
+        List<(string Namespace, string Key, string SourceString)> entries,
+        int targetIndex)
+    {
+        const int radius = 3;
+        var result = new List<ContextNeighbor>();
+        var start = Math.Max(0, targetIndex - radius);
+        var end = Math.Min(entries.Count - 1, targetIndex + radius);
+
+        for (var i = start; i <= end; i++)
+        {
+            if (i == targetIndex) continue;
+            var entry = entries[i];
+            result.Add(new ContextNeighbor
+            {
+                Offset = i - targetIndex,
+                Identity = ComposeIdentity(entry.Namespace, entry.Key),
+                SourceString = entry.SourceString
+            });
+        }
+
+        return result;
+    }
+
+    private static string ComposeIdentity(string @namespace, string key)
+        => string.IsNullOrEmpty(@namespace) ? key : $"{@namespace}::{key}";
+
+    private static void WriteJsonl(string path, IReadOnlyCollection<ContextReference> references)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            WriteIndented = false
+        };
+
+        using var writer = new StreamWriter(path, false, new UTF8Encoding(false));
+        foreach (var reference in references)
+            writer.WriteLine(JsonSerializer.Serialize(reference, options));
+    }
+
+    private static string BuildMissingPath(string outputFile)
+    {
+        var directory = Path.GetDirectoryName(outputFile) ?? string.Empty;
+        var name = Path.GetFileNameWithoutExtension(outputFile);
+        return Path.Combine(directory, $"{name}.missing.txt");
+    }
+
+    private static void PrintUsage()
+    {
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  NTE.ContextScanner <gameRoot> <keys.txt> <output.jsonl> [--aes-file=<path> | --aes-config=<path>] [--path=<virtual path>]");
+        Console.WriteLine();
+        Console.WriteLine("keys.txt: one exact namespace::key identity per line; blank lines and # comments are ignored.");
+        Console.WriteLine($"Default virtual path filter: {DefaultPathFilter}");
+        Console.WriteLine("Use --path=* to disable the virtual path filter.");
+    }
+}
+
+internal sealed class ContextReference
+{
+    public required string Identity { get; init; }
+    public required string Namespace { get; init; }
+    public required string Key { get; init; }
+    public required string SourceString { get; init; }
+    public required string AssetPath { get; init; }
+    public required string ReferenceKind { get; init; }
+    public required string ProviderView { get; init; }
+    public int? FTextIndex { get; init; }
+    public int? FTextCount { get; init; }
+    public int? StringTableEntryCount { get; init; }
+    public List<ContextNeighbor>? Neighbors { get; init; }
+}
+
+internal sealed class ContextNeighbor
+{
+    public required int Offset { get; init; }
+    public required string Identity { get; init; }
+    public required string SourceString { get; init; }
+}
