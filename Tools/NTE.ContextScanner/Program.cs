@@ -27,6 +27,7 @@ internal static class Program
             string? aesFile = null;
             string? aesConfig = null;
             var pathFilter = DefaultPathFilter;
+            var deepScan = false;
 
             foreach (var arg in args.Skip(3))
             {
@@ -42,6 +43,10 @@ internal static class Program
                 {
                     pathFilter = arg["--path=".Length..].Trim('"');
                     if (pathFilter == "*") pathFilter = string.Empty;
+                }
+                else if (arg.Equals("--deep", StringComparison.OrdinalIgnoreCase))
+                {
+                    deepScan = true;
                 }
                 else
                 {
@@ -66,6 +71,7 @@ internal static class Program
             Console.WriteLine("NTE Context Reference Scanner");
             Console.WriteLine($"Targets: {targets.Count}");
             Console.WriteLine($"Path filter: {(string.IsNullOrEmpty(pathFilter) ? "<none>" : pathFilter)}");
+            Console.WriteLine($"Scan mode: {(deepScan ? "deep" : "prefiltered")}");
             Console.WriteLine("Provider mode: effective mounted asset view");
             Console.WriteLine();
 
@@ -76,17 +82,15 @@ internal static class Program
             using var aesScope = TemporaryAesFile.Install(gameRoot, aesKey);
             using var reader = CreateReaderWithoutLeakingAes(gameRoot);
 
-            reader.ProcessAllAssets((assetPath, _) =>
-            {
-                if (!assetPath.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) &&
-                    !assetPath.EndsWith(".umap", StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
+            var candidates = FindCandidatePackages(reader, targets, deepScan);
+            Console.WriteLine();
+            Console.WriteLine($"Candidate packages: {candidates.Count}");
 
+            foreach (var assetPath in candidates.OrderBy(x => x, StringComparer.Ordinal))
+            {
                 ScanFTextReferences(reader, assetPath, targets, references, matched, seen);
                 ScanStringTableReferences(reader, assetPath, targets, references, matched, seen);
-            }, deepParse: false);
+            }
 
             var ordered = references
                 .OrderBy(x => x.Identity, StringComparer.Ordinal)
@@ -103,7 +107,9 @@ internal static class Program
                 .ToList();
 
             var missingFile = BuildMissingPath(outputFile);
-            Directory.CreateDirectory(Path.GetDirectoryName(missingFile)!);
+            var missingDirectory = Path.GetDirectoryName(missingFile);
+            if (!string.IsNullOrEmpty(missingDirectory))
+                Directory.CreateDirectory(missingDirectory);
             File.WriteAllLines(missingFile, missing, new UTF8Encoding(false));
 
             Console.WriteLine();
@@ -112,6 +118,9 @@ internal static class Program
             Console.WriteLine($"Missing identities: {missing.Count}");
             Console.WriteLine($"JSONL: {outputFile}");
             Console.WriteLine($"Missing list: {missingFile}");
+
+            if (!deepScan && missing.Count > 0)
+                Console.WriteLine("Tip: rerun with --deep if important identities remain missing; deep mode skips the raw-byte candidate prefilter.");
 
             return 0;
         }
@@ -175,6 +184,88 @@ internal static class Program
         {
             Console.SetOut(originalOut);
         }
+    }
+
+    private static HashSet<string> FindCandidatePackages(
+        UnrealArchiveReader reader,
+        HashSet<string> targets,
+        bool deepScan)
+    {
+        var candidates = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+        var patterns = BuildSearchPatterns(targets);
+
+        reader.ProcessAllAssets((assetPath, stream) =>
+        {
+            if (!IsPackagePayload(assetPath)) return;
+
+            if (deepScan || ContainsAnyPattern(stream, patterns))
+            {
+                var packagePath = assetPath.EndsWith(".uexp", StringComparison.OrdinalIgnoreCase)
+                    ? Path.ChangeExtension(assetPath, ".uasset")
+                    : assetPath;
+                candidates.TryAdd(packagePath, 0);
+            }
+        }, deepParse: false);
+
+        return candidates.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static List<byte[]> BuildSearchPatterns(HashSet<string> targets)
+    {
+        var tokens = targets
+            .Select(GetKeyToken)
+            .Where(x => !string.IsNullOrEmpty(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var patterns = new List<byte[]>(tokens.Count * 2);
+        foreach (var token in tokens)
+        {
+            patterns.Add(Encoding.UTF8.GetBytes(token));
+            patterns.Add(Encoding.Unicode.GetBytes(token));
+        }
+
+        return patterns;
+    }
+
+    private static string GetKeyToken(string identity)
+    {
+        var separator = identity.IndexOf("::", StringComparison.Ordinal);
+        return separator >= 0 ? identity[(separator + 2)..] : identity;
+    }
+
+    private static bool IsPackagePayload(string assetPath)
+        => assetPath.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase)
+           || assetPath.EndsWith(".uexp", StringComparison.OrdinalIgnoreCase)
+           || assetPath.EndsWith(".umap", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsAnyPattern(Stream stream, IReadOnlyList<byte[]> patterns)
+    {
+        if (patterns.Count == 0) return false;
+
+        byte[] buffer;
+        if (stream is MemoryStream memory && memory.TryGetBuffer(out var segment))
+            buffer = segment.Array is not null
+                ? segment.Array.AsSpan(segment.Offset, segment.Count).ToArray()
+                : memory.ToArray();
+        else
+        {
+            var originalPosition = stream.CanSeek ? stream.Position : 0;
+            if (stream.CanSeek) stream.Position = 0;
+            using var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            buffer = copy.ToArray();
+            if (stream.CanSeek) stream.Position = originalPosition;
+        }
+
+        var span = buffer.AsSpan();
+        foreach (var pattern in patterns)
+        {
+            if (pattern.Length > 0 && span.IndexOf(pattern) >= 0)
+                return true;
+        }
+
+        return false;
     }
 
     private static void ScanFTextReferences(
@@ -317,11 +408,12 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("Usage:");
-        Console.WriteLine("  NTE.ContextScanner <gameRoot> <keys.txt> <output.jsonl> [--aes-file=<path> | --aes-config=<path>] [--path=<virtual path>]");
+        Console.WriteLine("  NTE.ContextScanner <gameRoot> <keys.txt> <output.jsonl> [--aes-file=<path> | --aes-config=<path>] [--path=<virtual path>] [--deep]");
         Console.WriteLine();
         Console.WriteLine("keys.txt: one exact namespace::key identity per line; blank lines and # comments are ignored.");
         Console.WriteLine($"Default virtual path filter: {DefaultPathFilter}");
         Console.WriteLine("Use --path=* to disable the virtual path filter.");
+        Console.WriteLine("Use --deep to deserialize every package under the filter instead of raw-byte candidate prefiltering.");
     }
 }
 
@@ -356,7 +448,7 @@ internal sealed class TemporaryAesFile : IDisposable
 
         if (_hadExisting && _previousBytes is not null)
             File.WriteAllBytes(_path, _previousBytes);
-        else
+        else if (File.Exists(_path))
             File.Delete(_path);
     }
 }
