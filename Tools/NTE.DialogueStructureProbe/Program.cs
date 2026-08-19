@@ -273,7 +273,7 @@ internal static class Program
         try
         {
             var package = provider.LoadPackage(packagePath);
-            var exports = package.GetExports();
+            var exports = package.GetExports().ToList();
 
             for (var exportIndex = 0; exportIndex < exports.Count; exportIndex++)
             {
