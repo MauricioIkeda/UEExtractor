@@ -38,12 +38,24 @@ dotnet run --project .\Tools\NTE.ContextScanner\NTE.ContextScanner.csproj -- `
 
 Supported optional arguments:
 
-- `--aes-config=<path>`: reads `aes_key` from a JSON config without putting the AES value on the command line;
+- `--aes-config=<path>`: reads `aes_key` from a JSON config without placing the AES value on the command line;
 - `--aes-file=<path>`: reads a raw AES key from a file;
 - `--path=<virtual path>`: limits the mounted asset scan; default is `HT/Content/`;
-- `--path=*`: disables the virtual path filter.
+- `--path=*`: disables the virtual path filter;
+- `--deep`: disables the raw-byte candidate prefilter and attempts to deserialize every package under the path filter.
 
 When an AES is supplied through the scanner, it is written to a temporary `aes.txt` only for compatibility with the current reader, then the previous file is restored (or the temporary file is removed). Console output redacts the partial AES message emitted by the current reader.
+
+## Two-stage scan
+
+The default mode is intentionally conservative with CPU/time:
+
+1. scan raw `.uasset`, `.uexp` and `.umap` payloads for the key tokens requested in `keys.txt` (UTF-8 and UTF-16LE);
+2. deserialize only candidate packages and inspect their FText/StringTable data.
+
+This avoids serializing the entire NTE asset set just to investigate a handful of identities.
+
+The raw prefilter is an optimization, not a correctness proof. If an important key remains missing, rerun with `--deep`; that mode is slower but bypasses the candidate filter.
 
 ## Output
 
@@ -72,6 +84,7 @@ This is research instrumentation, not the final Context Engine.
 - FText neighbors are only local serialization neighbors inside the same parsed asset. They must **not** be interpreted as dialogue chronology without further evidence.
 - The current UEExtractor API does not expose export/property JSON paths through `GetLocalizedStrings`, so the first scanner version records asset-level provenance. If this proves useful, the next increment can preserve export/property paths instead of redesigning the Studio prematurely.
 - Some packages may fail to deserialize because mappings/type information are incomplete. Missing references therefore require investigation, not an automatic conclusion that the key is unused.
+- A key token can occur in an asset for reasons other than the exact target FText; candidate selection is only a prefilter. Exact `namespace::key` matching happens after deserialization.
 
 ## Research success criterion
 
