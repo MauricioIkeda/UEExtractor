@@ -73,7 +73,8 @@ internal static class Program
             var matched = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
             var seen = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
-            using var reader = new UnrealArchiveReader(gameRoot, AES: aesKey);
+            using var aesScope = TemporaryAesFile.Install(gameRoot, aesKey);
+            using var reader = CreateReaderWithoutLeakingAes(gameRoot);
 
             reader.ProcessAllAssets((assetPath, _) =>
             {
@@ -160,6 +161,20 @@ internal static class Program
             throw new InvalidDataException("AES key must contain exactly 64 hexadecimal digits.");
 
         return raw;
+    }
+
+    private static UnrealArchiveReader CreateReaderWithoutLeakingAes(string gameRoot)
+    {
+        var originalOut = Console.Out;
+        try
+        {
+            Console.SetOut(new AesRedactingTextWriter(originalOut));
+            return new UnrealArchiveReader(gameRoot);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
     }
 
     private static void ScanFTextReferences(
@@ -307,6 +322,65 @@ internal static class Program
         Console.WriteLine("keys.txt: one exact namespace::key identity per line; blank lines and # comments are ignored.");
         Console.WriteLine($"Default virtual path filter: {DefaultPathFilter}");
         Console.WriteLine("Use --path=* to disable the virtual path filter.");
+    }
+}
+
+internal sealed class TemporaryAesFile : IDisposable
+{
+    private readonly string? _path;
+    private readonly bool _hadExisting;
+    private readonly byte[]? _previousBytes;
+
+    private TemporaryAesFile(string? path, bool hadExisting, byte[]? previousBytes)
+    {
+        _path = path;
+        _hadExisting = hadExisting;
+        _previousBytes = previousBytes;
+    }
+
+    public static TemporaryAesFile Install(string gameRoot, string aesKey)
+    {
+        if (string.IsNullOrEmpty(aesKey))
+            return new TemporaryAesFile(null, false, null);
+
+        var path = Path.Combine(gameRoot, "aes.txt");
+        var hadExisting = File.Exists(path);
+        var previousBytes = hadExisting ? File.ReadAllBytes(path) : null;
+        File.WriteAllText(path, aesKey, Encoding.ASCII);
+        return new TemporaryAesFile(path, hadExisting, previousBytes);
+    }
+
+    public void Dispose()
+    {
+        if (_path is null) return;
+
+        if (_hadExisting && _previousBytes is not null)
+            File.WriteAllBytes(_path, _previousBytes);
+        else
+            File.Delete(_path);
+    }
+}
+
+internal sealed class AesRedactingTextWriter : TextWriter
+{
+    private readonly TextWriter _inner;
+
+    public AesRedactingTextWriter(TextWriter inner)
+    {
+        _inner = inner;
+    }
+
+    public override Encoding Encoding => _inner.Encoding;
+
+    public override void Write(char value) => _inner.Write(value);
+    public override void Write(string? value) => _inner.Write(value);
+
+    public override void WriteLine(string? value)
+    {
+        if (value is not null && value.StartsWith("AES key loaded:", StringComparison.OrdinalIgnoreCase))
+            _inner.WriteLine("AES key loaded [REDACTED]");
+        else
+            _inner.WriteLine(value);
     }
 }
 
