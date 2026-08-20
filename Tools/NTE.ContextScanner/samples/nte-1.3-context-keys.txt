@@ -1,0 +1,17 @@
+# NTE 1.3 - targeted context investigation sample
+# One exact namespace::key identity per line.
+
+# Main dialogue
+ST_MainDialogue::MU01_03_NPC017_038
+ST_MainDialogue::MU01_01_NPC00201_001
+
+# Side dialogue
+ST_Dialogue_Side::SU001_NPC007A_L_54
+ST_Dialogue_Side::SU006_Player_006
+
+# Legend dialogue
+ST_Dialogue_Legend::Akane01_NPC011_013
+
+# City-mark dialogue / gender evidence examples
+ST_Dialogue_CityMark_Chat::SD_Prison_CNPC117014_006
+ST_Dialogue_CityMark_Chat::SD_Prison_CNPC117015_002
