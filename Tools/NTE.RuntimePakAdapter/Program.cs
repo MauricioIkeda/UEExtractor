@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using CUE4Parse.UE4.Pak;
 using CUE4Parse.UE4.Versions;
+using CUE4Parse.UE4.VirtualFileSystem;
 
 namespace NTE.RuntimePakAdapter;
 
@@ -109,9 +110,11 @@ internal static class Program
                 report.NteFileCount = reader.FileCount;
                 report.NteFiles = reader.Files.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
 
-                var locresEntry = reader.Files.Values.FirstOrDefault(x => IsExpectedLocres(x.Path));
+                var locresEntry = reader.Files.Values
+                    .OfType<VfsEntry>()
+                    .FirstOrDefault(x => IsExpectedLocres(x.Path));
                 if (locresEntry is null)
-                    throw new InvalidDataException("NTE-adapted pak mounted but expected ES Game.locres entry was not found.");
+                    throw new InvalidDataException("NTE-adapted pak mounted but expected ES Game.locres VFS entry was not found.");
 
                 var locresBytes = reader.Extract(locresEntry);
                 report.ExtractedLocresSha256 = Convert.ToHexString(SHA256.HashData(locresBytes));
