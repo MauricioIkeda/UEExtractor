@@ -196,8 +196,8 @@ internal static class Program
             {
                 var a = original.StringRecords[i];
                 var b = current.StringRecords[i];
-                Increment(originalStorageHistogram, a.Storage);
-                Increment(currentStorageHistogram, b.Storage);
+                Increment(originalStorageHistogram, a.Storage.ToString());
+                Increment(currentStorageHistogram, b.Storage.ToString());
                 Increment(storageTransitions, $"{a.Storage}->{b.Storage}");
                 var delta = checked((int)(b.RecordSize - a.RecordSize));
                 Increment(sizeDeltaHistogram, delta);
