@@ -22,7 +22,12 @@ internal static class Program
         @"\{[^{}\r\n]+\}|<[^>\r\n]+>",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
-    private static readonly TestCase[] Cases =
+    private static readonly string[] ExactGenderTokens =
+    [
+        "<male=>", "<male>", "<female=>", "<female>"
+    ];
+
+    private static readonly TestCase[] BaseCases =
     [
         new(
             "placeholder_settings",
@@ -41,13 +46,7 @@ internal static class Program
             "Mint_SkillDes",
             "GA_Mint_Melee1_des",
             "PTBR018 NUMGREEN: realiza hasta <NumGreen>5</> ataques e inflige <Ling>daño de ánima</>.",
-            "Mint character > basic attack description; NumGreen/Ling markup must remain functional."),
-        new(
-            "gender_selfie",
-            "ST_UI_J",
-            "Selfie_117",
-            "<male=>PTBR018 MASCULINO<male><female=>PTBR018 FEMININO<female>",
-            "Selfie/photo expression list; source is Confundido/Confundida. Runtime should choose one branch and hide markers.")
+            "Mint character > basic attack description; NumGreen/Ling markup must remain functional.")
     ];
 
     private static int Main(string[] args)
@@ -81,8 +80,9 @@ internal static class Program
             Directory.CreateDirectory(artifactsDir);
 
             Console.WriteLine("NTE Runtime Structure Microtest Builder 018B");
-            Console.WriteLine("Purpose: mutate four known ES identities while preserving source-relative structural tokens.");
+            Console.WriteLine("Purpose: mutate four real ES identities while preserving source-relative structural tokens.");
             Console.WriteLine("In-place only: every selected identity must own a unique RefCount=1 string record.");
+            Console.WriteLine("Gender target is selected dynamically from the current effective ES snapshot to avoid shared strIdx records.");
             Console.WriteLine("This builder does not install anything into the game.");
             Console.WriteLine();
 
@@ -99,10 +99,18 @@ internal static class Program
 
             var keyMap = raw.KeyEntries.ToDictionary(x => (x.Namespace, x.Key));
             var refs = raw.KeyEntries.GroupBy(x => x.StringIndex).ToDictionary(g => g.Key, g => g.Count());
+
+            var genderCase = SelectUniqueGenderCase(raw, refs);
+            var cases = BaseCases.Concat([genderCase]).ToArray();
+
+            Console.WriteLine($"Dynamic gender target: {genderCase.Namespace}::{genderCase.Key}");
+            Console.WriteLine($"Gender source: {Compact(genderCase.SourcePreview ?? string.Empty)}");
+            Console.WriteLine();
+
             var overrides = new Dictionary<int, string>();
             var plans = new List<MutationPlan>();
 
-            foreach (var test in Cases)
+            foreach (var test in cases)
             {
                 var identity = (test.Namespace, test.Key);
                 if (!keyMap.TryGetValue(identity, out var entry))
@@ -128,6 +136,7 @@ internal static class Program
                         $"Structural token sequence mismatch for {test.Namespace}::{test.Key}. " +
                         $"source=[{string.Join(", ", sourceTokens)}] candidate=[{string.Join(", ", candidateTokens)}]");
                 }
+
                 if (!overrides.TryAdd(entry.StringIndex, test.CandidateText))
                     throw new InvalidOperationException($"Two Run 018B identities unexpectedly share strIdx {entry.StringIndex}.");
 
@@ -152,10 +161,11 @@ internal static class Program
             var candidateSemantic = ParseSemantic(candidateBytes, source.VirtualPath);
             if (!candidateSemantic.Success)
                 throw new InvalidOperationException("Candidate semantic parse failed: " + candidateSemantic.ErrorMessage);
+
             var candidateRaw = ParseRaw(candidateBytes);
             var refValidation = ValidateRefCounts(candidateRaw);
 
-            var expected = Cases.ToDictionary(x => (x.Namespace, x.Key), x => x.CandidateText);
+            var expected = cases.ToDictionary(x => (x.Namespace, x.Key), x => x.CandidateText);
             var missing = baseline.Entries.Keys.Except(candidateSemantic.Entries.Keys).ToList();
             var extra = candidateSemantic.Entries.Keys.Except(baseline.Entries.Keys).ToList();
             var shared = baseline.Entries.Keys.Intersect(candidateSemantic.Entries.Keys).ToList();
@@ -186,7 +196,7 @@ internal static class Program
                           refValidation.RefCountMismatchCount == 0 &&
                           refValidation.InvalidStringIndexCount == 0 &&
                           raw.StringRecords.Count == candidateRaw.StringRecords.Count &&
-                          mismatches.Count == Cases.Length &&
+                          mismatches.Count == cases.Length &&
                           plans.All(x => x.StructurePreserved);
 
             var summary = new RunSummary
@@ -201,7 +211,7 @@ internal static class Program
                 CandidateEntryCount = candidateSemantic.Entries.Count,
                 OriginalStringRecordCount = raw.StringRecords.Count,
                 CandidateStringRecordCount = candidateRaw.StringRecords.Count,
-                ExpectedChangedIdentityCount = Cases.Length,
+                ExpectedChangedIdentityCount = cases.Length,
                 ActualChangedIdentityCount = mismatches.Count,
                 MissingIdentityCount = missing.Count,
                 ExtraIdentityCount = extra.Count,
@@ -211,7 +221,8 @@ internal static class Program
                 RefCountMismatchCount = refValidation.RefCountMismatchCount,
                 InvalidStringIndexCount = refValidation.InvalidStringIndexCount,
                 StructurePreservedCount = plans.Count(x => x.StructurePreserved),
-                CandidatePath = candidatePath
+                CandidatePath = candidatePath,
+                DynamicGenderIdentity = Identity(genderCase.Namespace, genderCase.Key)
             };
             WriteJson(Path.Combine(outputDir, "summary.json"), summary);
 
@@ -225,11 +236,11 @@ internal static class Program
                 Console.WriteLine($"  HINT: {plan.RuntimeHint}");
             }
             Console.WriteLine();
-            Console.WriteLine($"Actual changed identities: {mismatches.Count}/{Cases.Length}");
+            Console.WriteLine($"Actual changed identities: {mismatches.Count}/{cases.Length}");
             Console.WriteLine($"Unexpected changes: {unexpected.Count}");
             Console.WriteLine($"Hash mismatches: {hashMismatches}");
             Console.WriteLine($"RefCount mismatches: {refValidation.RefCountMismatchCount}");
-            Console.WriteLine($"Structure preserved: {summary.StructurePreservedCount}/{Cases.Length}");
+            Console.WriteLine($"Structure preserved: {summary.StructurePreservedCount}/{cases.Length}");
             Console.WriteLine($"Builder success: {success}");
             return success ? 0 : 1;
         }
@@ -238,6 +249,64 @@ internal static class Program
             Console.Error.WriteLine("ERROR: " + ex);
             return 1;
         }
+    }
+
+    private static TestCase SelectUniqueGenderCase(RawLocresDocument raw, Dictionary<int, int> refs)
+    {
+        var candidates = new List<GenderCandidate>();
+
+        foreach (var key in raw.KeyEntries)
+        {
+            var record = RecordAt(raw, key.StringIndex);
+            var actualRefs = refs.TryGetValue(key.StringIndex, out var count) ? count : 0;
+            if (!record.DecryptSucceeded || record.RefCount != 1 || actualRefs != 1)
+                continue;
+
+            var tokens = StructuralTokens(record.PlainText);
+            if (!tokens.SequenceEqual(ExactGenderTokens, StringComparer.Ordinal))
+                continue;
+
+            var score = GenderPriority(key.Namespace, key.Key, record.PlainText);
+            candidates.Add(new GenderCandidate(key.Namespace, key.Key, record.PlainText, score));
+        }
+
+        var chosen = candidates
+            .OrderBy(x => x.Score)
+            .ThenBy(x => x.SourceText.Length)
+            .ThenBy(x => x.Namespace, StringComparer.Ordinal)
+            .ThenBy(x => x.Key, StringComparer.Ordinal)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException("No unique RefCount=1 gender-branch identity with the simple four-marker shape was found in effective ES.");
+
+        var hint =
+            $"Dynamic RefCount=1 gender target selected from effective ES: {chosen.Namespace}::{chosen.Key}. " +
+            $"Original ES='{Compact(chosen.SourceText)}'. Runtime should choose only MASCULINO or FEMININO and hide all branch markers.";
+
+        return new TestCase(
+            "gender_branch",
+            chosen.Namespace,
+            chosen.Key,
+            "<male=>PTBR018 MASCULINO<male><female=>PTBR018 FEMININO<female>",
+            hint,
+            chosen.SourceText);
+    }
+
+    private static int GenderPriority(string ns, string key, string text)
+    {
+        var score = 1000;
+        if (ns.Equals("ST_UI_J", StringComparison.OrdinalIgnoreCase)) score -= 500;
+        else if (ns.Equals("ST_Ui", StringComparison.OrdinalIgnoreCase)) score -= 450;
+        else if (ns.Contains("UI", StringComparison.OrdinalIgnoreCase)) score -= 300;
+        else if (ns.Contains("Mail", StringComparison.OrdinalIgnoreCase)) score -= 200;
+
+        if (key.Contains("Selfie", StringComparison.OrdinalIgnoreCase)) score -= 250;
+        if (key.Contains("Setting", StringComparison.OrdinalIgnoreCase)) score -= 200;
+        if (key.Contains("Mail", StringComparison.OrdinalIgnoreCase)) score -= 150;
+        if (key.Contains("Photo", StringComparison.OrdinalIgnoreCase)) score -= 100;
+        if (key.Contains("Player", StringComparison.OrdinalIgnoreCase)) score -= 50;
+        if (text.Length <= 80) score -= 100;
+        else if (text.Length <= 160) score -= 50;
+        return score;
     }
 
     private static SlotSource LoadEffectiveEs(DefaultFileProvider provider)
@@ -513,7 +582,14 @@ internal static class Program
         Console.WriteLine("Usage: NTE.RuntimeStructureMicrotestBuilder <gameRoot> <outputDir> [--aes-config=<json> | --aes-file=<txt>]");
 }
 
-internal sealed record TestCase(string Category, string Namespace, string Key, string CandidateText, string RuntimeHint);
+internal sealed record TestCase(
+    string Category,
+    string Namespace,
+    string Key,
+    string CandidateText,
+    string RuntimeHint,
+    string? SourcePreview = null);
+internal sealed record GenderCandidate(string Namespace, string Key, string SourceText, int Score);
 internal enum FStringStorage { Empty, Ansi, Wide }
 internal sealed record FStringRead(string Value, FStringStorage Storage);
 internal sealed record DecryptResult(bool Success, string PlainText, string? Error);
@@ -564,6 +640,7 @@ internal sealed class RunSummary
     public int InvalidStringIndexCount { get; init; }
     public int StructurePreservedCount { get; init; }
     public required string CandidatePath { get; init; }
+    public required string DynamicGenderIdentity { get; init; }
 }
 
 internal sealed class TemporaryAesCompatibility : IDisposable
