@@ -25,7 +25,6 @@ internal static class Program
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
     private static readonly string[] GenderMarkers = ["<male=>", "<male>", "<female=>", "<female>"];
-    private static readonly string[] InvariantTypingTitleAttributes = ["titlecolor", "contextcolor", "font"];
     private static readonly HashSet<string> LocalizableTypingTitleAttributes = new(StringComparer.OrdinalIgnoreCase) { "titlename" };
 
     private static int Main(string[] args)
@@ -157,7 +156,11 @@ internal static class Program
             "simple {0} placeholder case");
 
         var gender = Find(entries, x =>
-            HasGender(x.Text) && GenderRegex.IsMatch(x.Text) && x.Text.Length < 450,
+            HasGender(x.Text) &&
+            GenderRegex.IsMatch(x.Text) &&
+            GenderMarkers.All(marker => Count(x.Text, marker, true) == 1) &&
+            CanSafelyMutateGender(x.Text) &&
+            x.Text.Length < 450,
             "male/female branch case");
 
         var typingTitle = Find(entries, x =>
@@ -249,6 +252,14 @@ internal static class Program
 
     private static bool HasGender(string text) => GenderMarkers.All(x => text.Contains(x, StringComparison.OrdinalIgnoreCase));
 
+    private static bool CanSafelyMutateGender(string text)
+    {
+        var match = GenderRegex.Match(text);
+        if (!match.Success) return false;
+        static bool Simple(string value) => value.Length is > 0 and < 140 && value.IndexOfAny(['<', '>', '{', '}', '[', ']', '\\']) < 0;
+        return Simple(match.Groups["male"].Value) && Simple(match.Groups["female"].Value);
+    }
+
     private static string MutateGender(string source)
     {
         var m = GenderRegex.Match(source);
@@ -264,7 +275,7 @@ internal static class Program
     {
         var tagMatch = Regex.Match(source, $@"<{Regex.Escape(tagName)}\b[^>\r\n]*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         if (!tagMatch.Success) throw new InvalidOperationException($"Tag {tagName} not found.");
-        var attrPattern = $@"(?<prefix>\b{Regex.Escape(attributeName)}\s*=\s*)(?<q>[\"'])(?<value>.*?)(\k<q>)";
+        var attrPattern = $"(?<prefix>\\b{Regex.Escape(attributeName)}\\s*=\\s*)(?<q>[\"'])(?<value>.*?)(\\k<q>)";
         var replacedTag = Regex.Replace(tagMatch.Value, attrPattern, m =>
             m.Groups["prefix"].Value + m.Groups["q"].Value + newValue + m.Groups["q"].Value,
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
@@ -277,7 +288,7 @@ internal static class Program
     {
         var tagMatch = Regex.Match(source, $@"<{Regex.Escape(tagName)}\b[^>\r\n]*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         if (!tagMatch.Success) throw new InvalidOperationException($"Tag {tagName} not found.");
-        var attrPattern = $@"\s+\b{Regex.Escape(attributeName)}\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)";
+        var attrPattern = $"\\s+\\b{Regex.Escape(attributeName)}\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)";
         var replacedTag = Regex.Replace(tagMatch.Value, attrPattern, string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
         if (replacedTag == tagMatch.Value) throw new InvalidOperationException($"Attribute {tagName}.{attributeName} not found.");
         return source[..tagMatch.Index] + replacedTag + source[(tagMatch.Index + tagMatch.Length)..];
